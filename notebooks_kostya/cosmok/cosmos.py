@@ -1,16 +1,20 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from numpy.typing import NDArray, ArrayLike
 import os
-from scipy import fftpack
 import pathlib
+from scipy import fftpack
+from typing import Optional, Union
+
+import utils
 
 
-def _get_k(input_array, box_dims):
-    '''
+def _get_k(input_array: NDArray, box_dims):
+    """
     Get the k values for input array with given dimensions.
     Return k components and magnitudes.
     For internal use.
-    '''
+    """
     # Assuming 2d
     x, y = np.indices(input_array.shape, dtype='int32')
     # Centred k-space frequencies (k=0 is at the centre of the map)
@@ -23,18 +27,18 @@ def _get_k(input_array, box_dims):
     return [kx, ky], k
 
 
-def _get_kbins(kbins, box_dims, k):
-    '''
+def _get_kbins(kbins: Union[int, ArrayLike], box_dims, k) -> NDArray:
+    """
     Make a list of bin edges if kbins is an integer,
     otherwise return it as it is.
-    '''
+    """
     kmin = 2. * np.pi / min(box_dims)  # Minimum freq is that which fits in the box, scale of box
     kbins = np.linspace(kmin, k.max(), kbins + 1)
     return kbins
 
 
-def power_spectrum_nd(input_array, box_dims=None):
-    '''
+def power_spectrum_nd(input_array: NDArray, box_dims: Optional[float, ArrayLike] = None):
+    """
     Calculate the power spectrum of input_array and return it as an n-dimensional array,
     where n is the number of dimensions in input_array
     box_side is the size of the box in comoving Mpc. If this is set to None (default),
@@ -51,7 +55,7 @@ def power_spectrum_nd(input_array, box_dims=None):
 
     Returns:
         The power spectrum in the same dimensions as the input array.
-    '''
+    """
     box_dims = [box_dims[0]] * len(input_array.shape)
 
     # Transform to Fourier space
@@ -68,8 +72,8 @@ def power_spectrum_nd(input_array, box_dims=None):
     return power_spectrum
 
 
-def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed=None):
-    '''
+def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed: Optional = None):
+    """
     Generate a Gaussian random field with the specified
     power spectrum.
 
@@ -85,18 +89,16 @@ def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed=None)
 
     Returns:
         The Gaussian random field as a numpy array
-    '''
+    """
     dims = (n_pix, n_pix)
     box_dims = [box_dim] * len(dims)
     assert len(dims) == 2
 
-    if random_seed != None:
-        np.random.seed(random_seed)
-
+    rng = utils.make_random_state(seed=random_seed)
     # Generate map in Fourier space, Gaussian distributed real and imaginary parts
     # (= uniform amplitude, Gaussian phases). This field has P(k) = 1 for all k.
-    map_ft_real = np.random.normal(loc=0., scale=1., size=dims)
-    map_ft_imag = np.random.normal(loc=0., scale=1., size=dims)
+    map_ft_real = rng.normal(loc=0., scale=1., size=dims)
+    map_ft_imag = rng.normal(loc=0., scale=1., size=dims)
     map_ft = map_ft_real + 1j * map_ft_imag
 
     # Get k modes for power spectrum, radially symmetric for homog. + iso. field.
@@ -122,7 +124,7 @@ def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed=None)
 
 
 def radial_average(input_array, box_dims, kbins):
-    '''
+    """
     Radially average data.
 
     Parameters:
@@ -141,7 +143,7 @@ def radial_average(input_array, box_dims, kbins):
         averaged data, bins is an array with the bin centers and n_modes is the
         number of modes in each bin
 
-    '''
+    """
     k_comp, k = _get_k(input_array, box_dims)
 
     kbins = _get_kbins(kbins, box_dims, k)
@@ -159,27 +161,28 @@ def radial_average(input_array, box_dims, kbins):
     return outdata, kbins[:-1] + dk, n_modes
 
 
-def power_spectrum_1d(input_array_nd, kbins, box_dim):
-    ''' Calculate the spherically averaged power spectrum of an array
-	and return it as a one-dimensional array.
+def power_spectrum_1d(input_array_nd: ArrayLike, kbins, box_dim):
+    """
+    Calculate the spherically averaged power spectrum of an array
+    and return it as a one-dimensional array.
 
-	Parameters:
-		* input_array_nd (numpy array): the data array
-		* kbins = 100 (integer or array-like): The number of bins,
-			or a list containing the bin edges. If an integer is given, the bins
-			are logarithmically spaced.
-		* box_dims = None (float or array-like): the dimensions of the
-			box. If this is None, the current box volume is used along all
-			dimensions. If it is a float, this is taken as the box length
-			along all dimensions. If it is an array-like, the elements are
-			taken as the box length along each axis.
-		* return_n_modes = False (bool): if true, also return the
-			number of modes in each bin
+    Parameters:
+        * input_array_nd (numpy array): the data array
+        * kbins = 100 (integer or array-like): The number of bins,
+            or a list containing the bin edges. If an integer is given, the bins
+            are logarithmically spaced.
+        * box_dims = None (float or array-like): the dimensions of the
+            box. If this is None, the current box volume is used along all
+            dimensions. If it is a float, this is taken as the box length
+            along all dimensions. If it is an array-like, the elements are
+            taken as the box length along each axis.
+        * return_n_modes = False (bool): if true, also return the
+            number of modes in each bin
 
-	Returns:
-		A tuple with (Pk, bins), where Pk is an array with the
-		power spectrum and bins is an array with the k bin centers.
-    '''
+    Returns:
+        A tuple with (Pk, bins), where Pk is an array with the
+        power spectrum and bins is an array with the k bin centers.
+    """
     box_dims = [box_dim] * len(input_array_nd.shape)
 
     input_array = power_spectrum_nd(input_array_nd, box_dims=box_dims)
