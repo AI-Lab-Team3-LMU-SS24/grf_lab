@@ -37,7 +37,7 @@ def _get_kbins(kbins: Union[int, ArrayLike], box_dims, k) -> NDArray:
     return kbins
 
 
-def power_spectrum_nd(input_array: NDArray, box_dims: Optional[float, ArrayLike] = None):
+def power_spectrum_nd(input_array: NDArray, box_dims: Optional[Union[float, ArrayLike]] = None):
     """
     Calculate the power spectrum of input_array and return it as an n-dimensional array,
     where n is the number of dimensions in input_array
