@@ -6,7 +6,7 @@ import pathlib
 from scipy import fftpack
 from typing import Optional, Union
 
-import utils
+from . import utils
 
 
 def _get_k(input_array: NDArray, box_dims):
