@@ -4,7 +4,7 @@ from numpy.typing import NDArray, ArrayLike
 import os
 import pathlib
 from scipy import fftpack
-from typing import Optional, Union
+from typing import Optional, Union, Callable
 
 from . import utils
 
@@ -37,26 +37,42 @@ def _get_kbins(kbins: Union[int, ArrayLike], box_dims, k) -> NDArray:
     return kbins
 
 
-def power_spectrum_nd(input_array: NDArray, box_dims: Optional[Union[float, ArrayLike]] = None):
+def make_power_spectrum(amp: float, b: float) -> Callable[[ArrayLike], ArrayLike]:
+    r"""Create a power spectrum function
+
+    .. math::
+
+    y(k) = amp \cdot k^{-b}
+
+    :param amp: Amplitude
+    :param b: The power law
+    :return: A power law function.
+    """
+    return lambda k: amp * (k ** -b)
+
+
+def power_spectrum_nd(
+        input_array: NDArray,
+        box_dims: Optional[Union[float, ArrayLike]] = None,
+):
     """
     Calculate the power spectrum of input_array and return it as an n-dimensional array,
     where n is the number of dimensions in input_array
     box_side is the size of the box in comoving Mpc. If this is set to None (default),
     the internal box size is used
 
-    Parameters:
-        * input_array (numpy array): the array to calculate the
-            power spectrum of. Can be of any dimensions.
-        * box_dims = None (float or array-like): the dimensions of the
-            box. If this is None, the current box volume is used along all
-            dimensions. If it is a float, this is taken as the box length
-            along all dimensions. If it is an array-like, the elements are
-            taken as the box length along each axis.
-
-    Returns:
-        The power spectrum in the same dimensions as the input array.
+    :param input_array: the array to calculate the power spectrum of. Can be of any dimensions.
+    :param box_dims: the dimensions of the box.
+        If None, the current box volume is used along all dimensions.
+        If it is a float, this is taken as the box length along all dimensions.
+        If it is an array-like, the elements are taken as the box length along each axis.
+    :returns: The power spectrum in the same dimensions as the input array.
     """
-    box_dims = [box_dims[0]] * len(input_array.shape)
+    if box_dims is None:
+        box_dims = np.array(input_array.shape)
+    if isinstance(box_dims, float):
+        box_dims = [box_dims for _ in input_array.shape]
+    box_dims = [box_dims[0] for _ in input_array.shape]  # NOTE: Why?
 
     # Transform to Fourier space
     ft = fftpack.fftshift(fftpack.fftn(input_array.astype('float64')))
@@ -72,10 +88,15 @@ def power_spectrum_nd(input_array: NDArray, box_dims: Optional[Union[float, Arra
     return power_spectrum
 
 
-def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed: Optional = None):
-    """
-    Generate a Gaussian random field with the specified
-    power spectrum.
+def make_gaussian_random_field(
+        n_pix,
+        box_dim,
+        power_spectrum: Callable[[ArrayLike], ArrayLike],
+        random_seed: Optional = None,
+):
+    """Generate a Gaussian random field with the specified power spectrum.
+
+    :param n_pix: The number of pixels along each field dimensions.
 
     Parameters:
         * dims (tuple): the dimensions of the field in number
@@ -91,8 +112,9 @@ def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed: Opti
         The Gaussian random field as a numpy array
     """
     dims = (n_pix, n_pix)
-    box_dims = [box_dim] * len(dims)
-    assert len(dims) == 2
+    if isinstance(box_dim, float) or isinstance(box_dim, int):
+        box_dim = [box_dim for _ in dims]
+    assert len(box_dim) == len(dims) and len(dims) == 2
 
     rng = utils.make_random_state(seed=random_seed)
     # Generate map in Fourier space, Gaussian distributed real and imaginary parts
@@ -102,13 +124,13 @@ def make_gaussian_random_field(n_pix, box_dim, power_spectrum, random_seed: Opti
     map_ft = map_ft_real + 1j * map_ft_imag
 
     # Get k modes for power spectrum, radially symmetric for homog. + iso. field.
-    kx_ky, k = _get_k(map_ft_real, box_dims)  # Get k values given dimensions of field
+    kx_ky, k = _get_k(map_ft_real, box_dim)  # Get k values given dimensions of field
 
     # Numerical stability
     # k[np.abs(k) < 1.e-6] = 1.e-6
 
     # Scale factor
-    boxvol = np.prod(box_dims)  # = L^n_dims
+    boxvol = np.prod(box_dim)  # = L^n_dims
     pixelsize = boxvol / (np.prod(map_ft_real.shape))
     scale_factor = pixelsize ** 2 / boxvol
 
