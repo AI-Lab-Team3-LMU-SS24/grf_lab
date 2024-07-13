@@ -51,6 +51,47 @@ def make_power_spectrum(amp: float, b: float) -> Callable[[ArrayLike], ArrayLike
     return lambda k: amp * (k ** -b)
 
 
+def fft_with_k(
+        input_array: NDArray,
+        box_dims: Optional[Union[float, ArrayLike]] = None,
+):
+    """Generate a Fourier transform of the input array, along with the k values corresponding to each cell.
+
+    :param input_array: the array to calculate the power spectrum of. Can be of any dimensions.
+    :param box_dims: the dimensions of the box.
+        If None, the current box volume is used along all dimensions.
+        If it is a float, this is taken as the box length along all dimensions.
+        If it is an array-like, the elements are taken as the box length along each axis.
+    :returns: A 4-tuple:
+        - The Fourier transform of the input array
+        - The $k_x$ values corresponding to each cell
+        - The $k_y$ values corresponding to each cell
+        - The $|k|$ values corresponding to each cell
+    """
+    if box_dims is None:
+        box_dims = np.array(input_array.shape)
+    if isinstance(box_dims, float):
+        box_dims = [box_dims for _ in input_array.shape]
+    ft = fftpack.fftshift(fftpack.fftn(input_array.astype('float64')))
+    (kx, ky), k = _get_k(ft, box_dims)
+    return ft, kx, ky, k
+
+
+def grf_spectrum_to_x_space(
+        ft: NDArray,
+        do_real_only: bool = True,
+) -> NDArray:
+    """Transforms GRF spectrum to x-space.
+
+    :param ft: The k-space values of the data.
+    :param do_real_only: If True, only the real values are returned. If False, complex values are returned.
+    """
+    x_space = fftpack.ifftn(fftpack.fftshift(ft))
+    if do_real_only:
+        return np.real(x_space)
+    return x_space
+
+
 def power_spectrum_nd(
         input_array: NDArray,
         box_dims: Optional[Union[float, ArrayLike]] = None,
@@ -137,12 +178,10 @@ def make_gaussian_random_field(
     # Scale Fourier map by power spectrum (e.g. scale by covariance: same as reparameterization trick d_k = mu_k + noise * cov_k)
     map_ft *= np.sqrt(power_spectrum(k) / scale_factor)  # Covariance scales with volume dictated by scale factor?
 
-    # Inverse FT the Fourier space realisation that has been scaled by power-spectrum covariance
-    map_ift = fftpack.ifftn(fftpack.fftshift(map_ft))
-
-    # Real part of field
-    map_real = np.real(map_ift)
-    return map_real
+    return grf_spectrum_to_x_space(
+        map_ft,
+        do_real_only=True,
+    )
 
 
 def radial_average(input_array, box_dims, kbins):
@@ -183,7 +222,7 @@ def radial_average(input_array, box_dims, kbins):
     return outdata, kbins[:-1] + dk, n_modes
 
 
-def power_spectrum_1d(input_array_nd: ArrayLike, kbins, box_dim):
+def power_spectrum_1d(input_array_nd: NDArray, kbins, box_dims):
     """
     Calculate the spherically averaged power spectrum of an array
     and return it as a one-dimensional array.
@@ -205,7 +244,8 @@ def power_spectrum_1d(input_array_nd: ArrayLike, kbins, box_dim):
         A tuple with (Pk, bins), where Pk is an array with the
         power spectrum and bins is an array with the k bin centers.
     """
-    box_dims = [box_dim] * len(input_array_nd.shape)
+    if isinstance(box_dims, float) or isinstance(box_dims, int):
+        box_dims = [box_dims for _ in input_array_nd.shape]
 
     input_array = power_spectrum_nd(input_array_nd, box_dims=box_dims)
 
