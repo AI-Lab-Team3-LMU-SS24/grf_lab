@@ -9,8 +9,30 @@ from typing import Optional, Union, Callable
 from . import utils
 
 
-def _get_k(input_array: NDArray, box_dims):
+def _box_dims_adjuster(
+        box_dims,
+        inp_shape: Union[tuple, NDArray]
+) -> NDArray:
+    r""" Adjusts the different types of box_dims input params to a consistent format.
     """
+    if isinstance(inp_shape, np.ndarray):
+        inp_shape = inp_shape.shape
+    if not isinstance(inp_shape, tuple):
+        raise ValueError(f"`inp_shape` must be an array or a tuple, not {type(inp_shape)}")
+
+    if box_dims is None:
+        return np.array(inp_shape)
+    if isinstance(box_dims, int):
+        box_dims = float(box_dims)
+    if isinstance(box_dims, float):
+        return np.array([box_dims for _ in inp_shape])
+    if isinstance(box_dims, np.ndarray):
+        return box_dims
+    raise ValueError(f"`box_dims` of type {type(box_dims)} is not valid")
+
+
+def _get_k(input_array: NDArray, box_dims):
+    r"""
     Get the k values for input array with given dimensions.
     Return k components and magnitudes.
     For internal use.
@@ -68,10 +90,7 @@ def fft_with_k(
         - The $k_y$ values corresponding to each cell
         - The $|k|$ values corresponding to each cell
     """
-    if box_dims is None:
-        box_dims = np.array(input_array.shape)
-    if isinstance(box_dims, float):
-        box_dims = [box_dims for _ in input_array.shape]
+    box_dims = _box_dims_adjuster(box_dims, input_array.shape)
     ft = fftpack.fftshift(fftpack.fftn(input_array.astype('float64')))
     (kx, ky), k = _get_k(ft, box_dims)
     return ft, kx, ky, k
@@ -109,10 +128,7 @@ def power_spectrum_nd(
         If it is an array-like, the elements are taken as the box length along each axis.
     :returns: The power spectrum in the same dimensions as the input array.
     """
-    if box_dims is None:
-        box_dims = np.array(input_array.shape)
-    if isinstance(box_dims, float):
-        box_dims = [box_dims for _ in input_array.shape]
+    box_dims = _box_dims_adjuster(box_dims, input_array.shape)
     box_dims = [box_dims[0] for _ in input_array.shape]  # NOTE: Why?
 
     # Transform to Fourier space
@@ -153,8 +169,7 @@ def make_gaussian_random_field(
         The Gaussian random field as a numpy array
     """
     dims = (n_pix, n_pix)
-    if isinstance(box_dim, float) or isinstance(box_dim, int):
-        box_dim = [box_dim for _ in dims]
+    box_dim = _box_dims_adjuster(box_dim, dims)
     assert len(box_dim) == len(dims) and len(dims) == 2
 
     rng = utils.make_random_state(seed=random_seed)
@@ -205,6 +220,7 @@ def radial_average(input_array, box_dims, kbins):
         number of modes in each bin
 
     """
+    box_dims = _box_dims_adjuster(box_dims, input_array.shape)
     k_comp, k = _get_k(input_array, box_dims)
 
     kbins = _get_kbins(kbins, box_dims, k)
@@ -244,9 +260,7 @@ def power_spectrum_1d(input_array_nd: NDArray, kbins, box_dims):
         A tuple with (Pk, bins), where Pk is an array with the
         power spectrum and bins is an array with the k bin centers.
     """
-    if isinstance(box_dims, float) or isinstance(box_dims, int):
-        box_dims = [box_dims for _ in input_array_nd.shape]
-
+    box_dims = _box_dims_adjuster(box_dims, input_array_nd.shape)
     input_array = power_spectrum_nd(input_array_nd, box_dims=box_dims)
 
     power_spectrum, bins, n_modes = radial_average(
@@ -255,6 +269,61 @@ def power_spectrum_1d(input_array_nd: NDArray, kbins, box_dims):
         box_dims=box_dims
     )
     return power_spectrum, bins, n_modes
+
+
+def analytical_grf_probability(
+        grf: NDArray,
+        a: float,
+        b: float,
+        box_dims: Optional[Union[float, ArrayLike]] = None,
+) -> float:
+    r"""Calculates the analytical probability of measuring a certain GRF given power spectrum parameters a, b.
+
+    .. math::
+
+        \mathbb{P}(GRF|A, B) = \prod\limits_{i, j=1}^{N}
+        \frac
+            {1}
+            {\sqrt{2\pi\, |A\cdot |\vec{k}_{i, j}|^{-B} |}}
+        \large{e^{\frac
+            {-{\delta(\vec{k}_{i, j})}^2}
+            {2 A \cdot |\vec{k}_{i, j}|^{-B}}
+        }}
+        :label: prob
+
+    This probability is calculated for the following power spectrum:
+
+    .. math:: a \cdot k^{-b}
+       :label: power
+
+    :param grf: The GRF in x-space
+    :param a: The amplitude of the power spectrum in :eq:`power`.
+    :param b: The power-parameter of the power spectrum in :eq:`power`.
+    :param box_dims: the dimensions of the box.
+        If None, the current box volume is used along all dimensions.
+        If it is a float, this is taken as the box length along all dimensions.
+        If it is an array-like, the elements are taken as the box length along each axis.
+    :returns: The probability of the GRF being measured given the power spectrum.
+    """
+    box_dims = _box_dims_adjuster(box_dims, grf.shape)
+
+    f_expected = make_power_spectrum(amp=a, b=b)
+    ft, _, _, k = fft_with_k(grf, box_dims=box_dims)
+
+    n_k = np.unique(k).size
+    n_k = int(np.log(n_k))
+    calc_spec, k_bins_center, _ = power_spectrum_1d(grf, kbins=n_k, box_dims=box_dims)
+    p_spectrum = f_expected(k_bins_center)
+    # p_spectrum = np.sqrt(p_spectrum)
+    p_spectrum = p_spectrum ** 2
+
+    weight = 2 * np.pi * np.abs(p_spectrum)
+    weight = 1 / np.sqrt(weight)
+
+    res = -(calc_spec ** 2) / (2 * p_spectrum)
+    res = weight * np.exp(res)
+    mask = np.isfinite(res)
+    return np.prod(res, where=mask)
 
 
 if __name__ == "__main__":
