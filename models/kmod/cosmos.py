@@ -403,24 +403,31 @@ def analytical_grf_probability(
     box_dims = _box_dims_adjuster(box_dims, grf.shape)
 
     f_expected = make_power_spectrum(amp=a, b=b)
-    ft, _, _, k = fft_with_k(grf, box_dims=box_dims)
+    ft, _, _, k = fft_with_k(grf, box_dims=box_dims, do_adjust_vol=True)
 
-    n_k = np.unique(k).size
-    n_k = int(np.log(n_k))
-    calc_spec, k_bins_center, _ = power_spectrum_1d(grf, kbins=n_k, box_dims=box_dims)
-    p_spectrum = f_expected(k_bins_center)
+    n_k = np.unique(k).size - 2
+    # n_k = int(np.log(n_k))
+    # n_k = int(np.sqrt(n_k))
+
+    calc_spec = np.abs(ft) ** 2
+    # calc_spec = np.sqrt(calc_spec)
+
+    p_spectrum = f_expected(k)
+    # calc_spec, k_bins_center, mult = power_spectrum_1d(grf, kbins=n_k, box_dims=box_dims)
+    # mask = mult > 0
+    # p_spectrum = f_expected(k_bins_center)
+    # p_spectrum = np.where(mask, f_expected(k_bins_center), 1.0)
     # p_spectrum = np.sqrt(p_spectrum)
     # p_spectrum = p_spectrum ** 2
+    # calc_spec = np.where(mask, np.abs(calc_spec) ** 2, 0.0)
 
-    weight = np.abs(p_spectrum)
+    res = calc_spec / p_spectrum
+    res += np.log(p_spectrum)
     if do_exact_weights:
-        weight *= 2 * np.pi
-    weight = 1 / np.sqrt(weight)
-
-    res = -(calc_spec ** 2) / (2 * p_spectrum)
-    res = weight * np.exp(res)
-    mask = np.isfinite(res) & (res > 0.0)
-    return np.prod(res, where=mask)
+        res += np.log(2 * np.pi)
+    # res *= mult
+    res = -np.sum(res) / 2
+    return res
 
 
 if __name__ == "__main__":
