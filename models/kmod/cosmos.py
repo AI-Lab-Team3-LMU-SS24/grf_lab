@@ -276,6 +276,7 @@ def analytical_grf_probability(
         a: float,
         b: float,
         box_dims: Optional[Union[float, ArrayLike]] = None,
+        do_exact_weights: bool = False,
 ) -> float:
     r"""Calculates the analytical probability of measuring a certain GRF given power spectrum parameters a, b.
 
@@ -303,6 +304,8 @@ def analytical_grf_probability(
         If None, the current box volume is used along all dimensions.
         If it is a float, this is taken as the box length along all dimensions.
         If it is an array-like, the elements are taken as the box length along each axis.
+    :param do_exact_weights: If False, removes the :math:`2\pi` normalization factor.
+    Used to avoid numbers exploding to zero.
     :returns: The probability of the GRF being measured given the power spectrum.
     """
     box_dims = _box_dims_adjuster(box_dims, grf.shape)
@@ -315,14 +318,16 @@ def analytical_grf_probability(
     calc_spec, k_bins_center, _ = power_spectrum_1d(grf, kbins=n_k, box_dims=box_dims)
     p_spectrum = f_expected(k_bins_center)
     # p_spectrum = np.sqrt(p_spectrum)
-    p_spectrum = p_spectrum ** 2
+    # p_spectrum = p_spectrum ** 2
 
-    weight = 2 * np.pi * np.abs(p_spectrum)
+    weight = np.abs(p_spectrum)
+    if do_exact_weights:
+        weight *= 2 * np.pi
     weight = 1 / np.sqrt(weight)
 
     res = -(calc_spec ** 2) / (2 * p_spectrum)
     res = weight * np.exp(res)
-    mask = np.isfinite(res)
+    mask = np.isfinite(res) & (res > 0.0)
     return np.prod(res, where=mask)
 
 
