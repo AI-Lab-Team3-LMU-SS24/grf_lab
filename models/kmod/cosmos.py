@@ -50,7 +50,7 @@ def _get_k(input_array: NDArray, box_dims):
 
 
 def _get_kbins(kbins: Union[int, ArrayLike], box_dims, k) -> NDArray:
-    """
+    r"""
     Make a list of bin edges if kbins is an integer,
     otherwise return it as it is.
     """
@@ -77,7 +77,7 @@ def fft_with_k(
         input_array: NDArray,
         box_dims: Optional[Union[float, ArrayLike]] = None,
 ):
-    """Generate a Fourier transform of the input array, along with the k values corresponding to each cell.
+    r"""Generate a Fourier transform of the input array, along with the k values corresponding to each cell.
 
     :param input_array: the array to calculate the power spectrum of. Can be of any dimensions.
     :param box_dims: the dimensions of the box.
@@ -100,7 +100,7 @@ def grf_spectrum_to_x_space(
         ft: NDArray,
         do_real_only: bool = True,
 ) -> NDArray:
-    """Transforms GRF spectrum to x-space.
+    r"""Transforms GRF spectrum to x-space.
 
     :param ft: The k-space values of the data.
     :param do_real_only: If True, only the real values are returned. If False, complex values are returned.
@@ -115,7 +115,7 @@ def power_spectrum_nd(
         input_array: NDArray,
         box_dims: Optional[Union[float, ArrayLike]] = None,
 ):
-    """
+    r"""
     Calculate the power spectrum of input_array and return it as an n-dimensional array,
     where n is the number of dimensions in input_array
     box_side is the size of the box in comoving Mpc. If this is set to None (default),
@@ -151,7 +151,7 @@ def make_gaussian_random_field(
         power_spectrum: Callable[[ArrayLike], ArrayLike],
         random_seed: Optional = None,
 ):
-    """Generate a Gaussian random field with the specified power spectrum.
+    r"""Generate a Gaussian random field with the specified power spectrum.
 
     :param n_pix: The number of pixels along each field dimensions.
 
@@ -239,7 +239,7 @@ def radial_average(input_array, box_dims, kbins):
 
 
 def power_spectrum_1d(input_array_nd: NDArray, kbins, box_dims):
-    """
+    r"""
     Calculate the spherically averaged power spectrum of an array
     and return it as a one-dimensional array.
 
