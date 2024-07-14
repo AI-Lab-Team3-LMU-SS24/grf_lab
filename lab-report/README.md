@@ -8,7 +8,7 @@ This directory covers all assignments given in the lab:
 
 The individual work of the lab members can be found on their individual branches:
 
- - [Yakup's branch - yes]("https://github.com/AI-Lab-Team3-LMU-SS24/grf_lab/tree/yes" "Yakup's branch")
- - [Konstantin's branch - k_dev]("https://github.com/AI-Lab-Team3-LMU-SS24/grf_lab/tree/k_dev" "Konstantin's branch")
- - [Liu's branch - s,liu]("https://github.com/AI-Lab-Team3-LMU-SS24/grf_lab/tree/s%2Cliu" "Liu's branch")
+ - [Yakup's branch - yes](https://github.com/AI-Lab-Team3-LMU-SS24/grf_lab/tree/yes "Yakup's branch")
+ - [Konstantin's branch - k_dev](https://github.com/AI-Lab-Team3-LMU-SS24/grf_lab/tree/k_dev "Konstantin's branch")
+ - [Liu's branch - s,liu](https://github.com/AI-Lab-Team3-LMU-SS24/grf_lab/tree/s%2Cliu "Liu's branch")
 
