@@ -4,7 +4,12 @@ from numpy.typing import NDArray, ArrayLike
 import os
 import pathlib
 from scipy import fftpack
+from sklearn.utils import shuffle
 from typing import Optional, Union, Callable
+
+import torch
+from torch import nn
+from torch import distributions
 
 from . import utils
 
@@ -76,6 +81,7 @@ def make_power_spectrum(amp: float, b: float) -> Callable[[ArrayLike], ArrayLike
 def fft_with_k(
         input_array: NDArray,
         box_dims: Optional[Union[float, ArrayLike]] = None,
+        do_adjust_vol: bool = True,
 ):
     r"""Generate a Fourier transform of the input array, along with the k values corresponding to each cell.
 
@@ -84,6 +90,7 @@ def fft_with_k(
         If None, the current box volume is used along all dimensions.
         If it is a float, this is taken as the box length along all dimensions.
         If it is an array-like, the elements are taken as the box length along each axis.
+    :param do_adjust_vol: If true, the FT values are adjusted according to the volume.
     :returns: A 4-tuple:
         - The Fourier transform of the input array
         - The $k_x$ values corresponding to each cell
@@ -93,6 +100,12 @@ def fft_with_k(
     box_dims = _box_dims_adjuster(box_dims, input_array.shape)
     ft = fftpack.fftshift(fftpack.fftn(input_array.astype('float64')))
     (kx, ky), k = _get_k(ft, box_dims)
+
+    if do_adjust_vol:
+        boxvol = np.prod(box_dims)
+        pixelsize = boxvol / np.prod(ft.shape)
+        amp = pixelsize / np.sqrt(boxvol)
+        ft *= amp
     return ft, kx, ky, k
 
 
@@ -200,8 +213,7 @@ def make_gaussian_random_field(
 
 
 def radial_average(input_array, box_dims, kbins):
-    """
-    Radially average data.
+    r"""Radially average data.
 
     Parameters:
         * input_array (numpy array): the data array
@@ -269,6 +281,86 @@ def power_spectrum_1d(input_array_nd: NDArray, kbins, box_dims):
         box_dims=box_dims
     )
     return power_spectrum, bins, n_modes
+
+
+class RealNVP(nn.Module):
+    def __init__(self, net_s, net_t, mask, prior):
+        super(RealNVP, self).__init__()
+        # Base distribution, a data-dimensional Gaussian
+        self.prior = prior
+        # Masks are not to be optimised
+        self.mask = nn.Parameter(mask, requires_grad=False)
+        # The s and t nets that parameterise the scale and shift
+        # change of variables according to inputs, here we are
+        # duplicating the networks for each layer.
+        self.t = torch.nn.ModuleList(
+            [net_t() for _ in range(len(self.mask))]
+        )
+        self.s = torch.nn.ModuleList(
+            [net_s() for _ in range(len(self.mask))]
+        )
+
+    def reverse(self, z):
+        # Map from Gaussian distributed z to data x
+        x = z
+        for i in range(len(self.t)):
+            x_ = x * self.mask[i]
+            s = self.s[i](x_) * (1 - self.mask[i])
+            t = self.t[i](x_) * (1 - self.mask[i])
+            x = x_ + (1 - self.mask[i]) * (x * torch.exp(s) + t)
+        return x
+
+    def forward(self, x):
+        # Map from data x to Gaussian distributed z
+        log_det_J, z = x.new_zeros(x.shape[0]), x
+        for i in reversed(range(len(self.t))):
+            z_ = self.mask[i] * z
+            s = self.s[i](z_) * (1 - self.mask[i])
+            t = self.t[i](z_) * (1 - self.mask[i])
+            z = (1 - self.mask[i]) * (z - t) * torch.exp(-s) + z_
+            log_det_J -= s.sum(dim=1)
+        return z, log_det_J
+
+    def log_prob(self, x):
+        # Calculate log-probability of x under flow distribution
+        z, log_det_J = self.forward(x)
+        return self.prior.log_prob(z) + log_det_J
+
+    def sample(self, n):
+        # Sample n points from flow distribution fit to data
+        z = self.prior.sample((n, 1))
+        x = self.reverse(z)
+        return x
+
+
+def make_k_grf_param_dataset(
+        grf: NDArray,
+        ab: NDArray,
+        box_dims: Optional = None,
+        seed: Optional[int] = None,
+) -> NDArray:
+    r"""
+    :param grf: A collection of GRFs in the form of a numpy array: (batch_size, x_size, y_size)
+    :param ab: A collection of power spectrum parameters corresponding to the GRFs collection (same batch size).
+    :param box_dims: The dimensions of the box volume.
+    :param seed: A randomness seed. If None, no data is not shuffled.
+    :returns: An array of shape (batch_size, 5), such that each element is of the form (k_x, k_y, |ft|, A, B).
+    """
+    res = list()
+    for a_grf, (a, b) in zip(grf, ab):
+        ft, kx, ky, _ = fft_with_k(a_grf, box_dims=box_dims, do_adjust_vol=True)
+        ft_abs = np.abs(ft)
+        res.append(np.array([
+            kx.reshape(-1),
+            ky.reshape(-1),
+            ft_abs.reshape(-1),
+            a * np.ones((kx.size, )),
+            b * np.ones((kx.size, )),
+        ]).T)
+    res = np.vstack(res)
+    if seed is None:
+        return res
+    return shuffle(res, random_state=seed)
 
 
 def analytical_grf_probability(
